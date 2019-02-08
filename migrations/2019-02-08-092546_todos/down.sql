@@ -1,0 +1,2 @@
+DROP TABLE deps;
+DROP TABLE todos;

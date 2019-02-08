@@ -1,13 +1,11 @@
-FROM rust:latest
+FROM clux/muslrust:latest
 WORKDIR /usr/src/todograph
 COPY . .
 RUN cargo build --release
 
-FROM debian:stable-slim
-RUN apt-get update && apt-get install -y ca-certificates libpq5 && rm -rf /var/lib/apt/lists/*
-COPY --from=0 /usr/src/todograph/target/release/todograph /usr/local/bin/todograph
-
+FROM scratch
 USER nobody
-CMD /usr/local/bin/todograph
+COPY --from=0 /usr/src/todograph/target/x86_64-unknown-linux-musl/release/todograph /todograph
+CMD /todograph
 
 # vi:syntax=dockerfile

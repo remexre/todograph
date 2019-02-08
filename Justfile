@@ -9,6 +9,11 @@ build-debug:
 	cargo build
 build-release:
 	cargo build --release
+build-musl:
+	#!/bin/bash
+	export RUSTFLAGS='-Clink-arg=-static -Ctarget-feature=+crt-static'
+	export SQLITE_STATIC=1
+	exec cargo build --release --target x86_64-unknown-linux-musl
 check:
 	cargo check --all
 clippy:
