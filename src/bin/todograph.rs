@@ -1,37 +1,20 @@
 #[macro_use]
-extern crate diesel;
-#[macro_use]
-extern crate diesel_migrations;
-#[macro_use]
-extern crate derive_more;
-#[macro_use]
-extern crate serde_derive;
+extern crate todograph;
 
-#[macro_use]
-mod util;
-
-mod errors;
-mod options;
-mod schema;
-
-embed_migrations!("migrations");
-
-use crate::{
-    errors::BadAuth,
-    options::Options,
-    schema::{deps, todos},
-    util::{blocking, log_err, Result},
-};
-use antidote::Mutex;
-use diesel::{
-    dsl::{delete, insert_into, update},
-    prelude::*,
-};
 use futures::Future;
 use log::warn;
 use packer::Packer;
-use std::{path::Path, process::exit, sync::Arc};
+use std::{
+    net::{SocketAddr, ToSocketAddrs},
+    path::Path,
+    process::exit,
+};
 use structopt::StructOpt;
+use todograph::{
+    errors::{BadAuth, ErrorString},
+    util::{log_err, Result},
+    CreateTodo, Dep, Todo, DB,
+};
 use warp::{http::Response, path, Filter, Rejection};
 
 fn main() {
@@ -46,13 +29,12 @@ fn main() {
 
 fn run(options: Options) -> Result<()> {
     let serve_addr = options.serve_addr()?;
-    let db = SqliteConnection::establish(&options.database_path)?;
-    embedded_migrations::run_with_output(&db, &mut std::io::stderr())?;
+    let db = DB::connect(&options.database_path)?;
 
     let authorization = Box::leak(options.authorization().into_boxed_str());
     let routes = warp::header::exact("authorization", authorization)
         .or_else(|_| Err(warp::reject::custom(BadAuth)))
-        .and(routes(Arc::new(Mutex::new(db))))
+        .and(routes(db))
         .recover(|rej: Rejection| {
             if rej.find_cause::<BadAuth>().is_some() {
                 Response::builder()
@@ -71,49 +53,12 @@ fn run(options: Options) -> Result<()> {
     Ok(())
 }
 
-fn routes(
-    db: Arc<Mutex<SqliteConnection>>,
-) -> impl Clone + Filter<Extract = (impl warp::Reply,), Error = Rejection> {
-    #[derive(Debug, Deserialize)]
-    struct CreateTodo {
-        name: String,
-    }
-
-    #[derive(Debug, Serialize)]
-    struct GetAll {
-        todos: Vec<Todo>,
-        deps: Vec<Dep>,
-    }
-
-    #[derive(Debug, Deserialize, Queryable, Serialize)]
-    struct Dep {
-        from: i32,
-        to: i32,
-    }
-
-    #[derive(Debug, Deserialize, Queryable, Serialize)]
-    struct Todo {
-        id: i32,
-        name: String,
-        done: bool,
-    }
-
+fn routes(db: DB) -> impl Clone + Filter<Extract = (impl warp::Reply,), Error = Rejection> {
     let get_all_db = db.clone();
     let get_all = path!("api" / "all")
         .and(warp::path::end())
         .and(warp::get2())
-        .and_then(move || {
-            let db = get_all_db.clone();
-            blocking(move || -> Result<_> {
-                let db = db.lock();
-                let todos = todos::table.get_results::<Todo>(&*db)?;
-                let deps = deps::table
-                    .select((deps::id_from, deps::id_to))
-                    .get_results::<Dep>(&*db)?;
-                Ok(GetAll { todos, deps })
-            })
-            .map_err(warp::reject::custom)
-        })
+        .and_then(move || get_all_db.get_all().map_err(warp::reject::custom))
         .map(|r| warp::reply::json(&r));
 
     let create_dep_db = db.clone();
@@ -121,17 +66,7 @@ fn routes(
         .and(warp::path::end())
         .and(warp::post2())
         .and(warp::body::json())
-        .and_then(move |dep: Dep| {
-            let db = create_dep_db.clone();
-            blocking(move || -> Result<_> {
-                let db = db.lock();
-                insert_into(deps::table)
-                    .values((deps::id_from.eq(dep.from), deps::id_to.eq(dep.to)))
-                    .execute(&*db)?;
-                Ok(())
-            })
-            .map_err(warp::reject::custom)
-        })
+        .and_then(move |dep: Dep| create_dep_db.create_dep(dep).map_err(warp::reject::custom))
         .and_then(|()| {
             Response::builder()
                 .status(204)
@@ -144,18 +79,7 @@ fn routes(
         .and(warp::path::end())
         .and(warp::post2())
         .and(warp::body::json())
-        .and_then(move |dep: Dep| {
-            let db = delete_dep_db.clone();
-            blocking(move || -> Result<_> {
-                let db = db.lock();
-                delete(deps::table)
-                    .filter(deps::id_from.eq(dep.from))
-                    .filter(deps::id_to.eq(dep.to))
-                    .execute(&*db)?;
-                Ok(())
-            })
-            .map_err(warp::reject::custom)
-        })
+        .and_then(move |dep: Dep| delete_dep_db.delete_dep(dep).map_err(warp::reject::custom))
         .and_then(|()| {
             Response::builder()
                 .status(204)
@@ -169,15 +93,9 @@ fn routes(
         .and(warp::post2())
         .and(warp::body::json())
         .and_then(move |req: CreateTodo| {
-            let db = create_todo_db.clone();
-            blocking(move || -> Result<_> {
-                let db = db.lock();
-                insert_into(todos::table)
-                    .values(todos::name.eq(req.name))
-                    .execute(&*db)?;
-                Ok(())
-            })
-            .map_err(warp::reject::custom)
+            create_todo_db
+                .create_todo(req)
+                .map_err(warp::reject::custom)
         })
         .and_then(|()| {
             Response::builder()
@@ -187,21 +105,14 @@ fn routes(
         });
 
     let modify_todo_db = db.clone();
-    let modify_todo = path!("api" / "new-todo")
+    let modify_todo = path!("api" / "modify-todo")
         .and(warp::path::end())
         .and(warp::post2())
         .and(warp::body::json())
         .and_then(move |todo: Todo| {
-            let db = modify_todo_db.clone();
-            blocking(move || -> Result<_> {
-                let db = db.lock();
-                update(todos::table)
-                    .filter(todos::id.eq(todo.id))
-                    .set((todos::name.eq(todo.name), todos::done.eq(todo.done)))
-                    .execute(&*db)?;
-                Ok(())
-            })
-            .map_err(warp::reject::custom)
+            modify_todo_db
+                .modify_todo(todo)
+                .map_err(warp::reject::custom)
         })
         .and_then(|()| {
             Response::builder()
@@ -259,4 +170,69 @@ fn statics() -> impl Clone + Filter<Extract = (Response<Vec<u8>>,), Error = Reje
                 .body(body.to_owned())
                 .map_err(warp::reject::custom)
         })
+}
+
+#[derive(Debug, structopt::StructOpt)]
+#[structopt(raw(setting = "::structopt::clap::AppSettings::ColoredHelp"))]
+pub struct Options {
+    /// Turns off message output.
+    #[structopt(short = "q", long = "quiet")]
+    quiet: bool,
+
+    /// Increases the verbosity.
+    #[structopt(short = "v", long = "verbose", parse(from_occurrences))]
+    verbose: usize,
+
+    /// The name of the SQLite database file.
+    #[structopt(long = "db", env = "DATABASE_PATH", default_value = "todograph.db")]
+    pub database_path: String,
+
+    /// The host to serve on.
+    #[structopt(short = "H", long = "host", env = "HOST", default_value = "::")]
+    host: String,
+
+    /// The port to serve on.
+    #[structopt(short = "P", long = "port", env = "PORT", default_value = "8080")]
+    port: u16,
+
+    /// The password to require for auth.
+    #[structopt(long = "password", env = "PASSWORD")]
+    pub password: String,
+
+    /// The username to require for auth.
+    #[structopt(long = "username", env = "USERNAME")]
+    pub username: String,
+}
+
+impl Options {
+    /// Gets the `Authorization` header to accept.
+    pub fn authorization(&self) -> String {
+        let mut s = "Basic ".to_string();
+        let creds = format!("{}:{}", self.username, self.password);
+        base64::encode_config_buf(&creds, base64::STANDARD, &mut s);
+        s
+    }
+
+    /// Get the address to serve on.
+    pub fn serve_addr(&self) -> Result<SocketAddr> {
+        let addrs = (&self.host as &str, self.port)
+            .to_socket_addrs()?
+            .collect::<Vec<_>>();
+        if addrs.is_empty() {
+            return Err(Box::new(ErrorString(
+                "No matching address exists".to_string(),
+            )));
+        } else {
+            Ok(addrs[0])
+        }
+    }
+
+    /// Sets up logging as specified by the `-q` and `-v` flags.
+    pub fn start_logger(&self) {
+        stderrlog::new()
+            .quiet(self.quiet)
+            .verbosity(self.verbose + 2)
+            .init()
+            .unwrap()
+    }
 }

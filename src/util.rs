@@ -3,7 +3,7 @@ use log::error;
 use std::error::Error;
 
 /// A convenient alias for `Result`.
-pub type Result<T, E = Box<dyn Error + Send + Sync>> = ::std::result::Result<T, E>;
+pub type Result<T, E = Box<dyn Error + Send + Sync + 'static>> = ::std::result::Result<T, E>;
 
 /// A higher-level version of `tokio_threadpool::blocking`.
 pub fn blocking<E, F, T>(func: F) -> impl Future<Item = T, Error = E>
@@ -59,6 +59,7 @@ impl<'a> Iterator for ErrorCauseIter<'a> {
 }
 
 /// An explicit trivial cast.
+#[macro_export]
 macro_rules! coerce {
     ($e:expr => $t:ty) => {{
         let x: $t = $e;

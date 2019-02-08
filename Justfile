@@ -2,18 +2,13 @@ all: check build-debug doc test
 clean:
 	cargo clean
 watch TARGET="all":
-	watchexec -cre rs,toml "just {{TARGET}}"
+	watchexec -cre css,html,js,rs,toml "just {{TARGET}}"
 
 build: build-debug build-release
 build-debug:
-	cargo build
+	cargo build --all
 build-release:
-	cargo build --release
-build-musl:
-	#!/bin/bash
-	export RUSTFLAGS='-Clink-arg=-static -Ctarget-feature=+crt-static'
-	export SQLITE_STATIC=1
-	exec cargo build --release --target x86_64-unknown-linux-musl
+	cargo build --all --release
 check:
 	cargo check --all
 clippy:
