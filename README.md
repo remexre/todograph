@@ -1,14 +1,9 @@
-nihctfplat
-==========
+todograph
+=========
 
-[![Build Status](https://travis-ci.org/remexre/nihctfplat.svg?branch=master)](https://travis-ci.org/remexre/nihctfplat) [![Dependency Status](https://deps.rs/repo/github/remexre/nihctfplat/status.svg)](https://deps.rs/repo/github/remexre/nihctfplat) [![Docker Status](https://img.shields.io/docker/build/remexre/nihctfplat.svg?style=flat)](https://hub.docker.com/r/remexre/nihctfplat)
+[![Build Status](https://travis-ci.org/remexre/todograph.svg?branch=master)](https://travis-ci.org/remexre/todograph) [![Dependency Status](https://deps.rs/repo/github/remexre/todograph/status.svg)](https://deps.rs/repo/github/remexre/todograph) [![Docker Status](https://img.shields.io/docker/build/remexre/todograph.svg?style=flat)](https://hub.docker.com/r/remexre/todograph)
 
-A CTF platform that was invented here.
-
-Hacking
--------
-
-This follows the approach laid out in ["Stateless MVC"](https://www.tedinski.com/2018/09/11/stateless-mvc.html). Ignore the "Should you use this design?" section...
+A graph-structured TODO list.
 
 License
 -------
