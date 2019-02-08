@@ -1,0 +1,9 @@
+.*
+!.dockerignore
+!.gitattributes
+!.gitignore
+!.travis.yml
+
+target/
+
+*.db

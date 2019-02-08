@@ -1,0 +1,20 @@
+[package]
+authors = ["Nathan Ringo <remexre@protonmail.com>"]
+description = "A graph-structured TODO list."
+edition = "2018"
+license = "Apache-2.0/MIT"
+name = "todograph"
+version = "0.1.0"
+
+[dependencies]
+derive_more = "0.14.0"
+diesel = { version = "1.4.1", default_features = false, features = ["sqlite"] }
+diesel_migrations = "1.4.0"
+futures = "0.1.25"
+lazy_static = "1.2.0"
+log = "0.4.6"
+serde = "1.0.85"
+stderrlog = "0.4.1"
+structopt = "0.2.14"
+tokio = "0.1.15"
+warp = "0.1.12"
