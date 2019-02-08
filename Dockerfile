@@ -4,8 +4,8 @@ COPY . .
 RUN cargo build --release
 
 FROM scratch
-USER nobody
+VOLUME /data
 COPY --from=0 /usr/src/todograph/target/x86_64-unknown-linux-musl/release/todograph /todograph
-CMD /todograph
+CMD /todograph --database-url /data/todograph.db
 
 # vi:syntax=dockerfile
